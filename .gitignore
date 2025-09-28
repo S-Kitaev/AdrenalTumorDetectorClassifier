@@ -2,3 +2,5 @@
 .venv/
 .xlsx
 .csv
+.data/
+.zip
