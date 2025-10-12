@@ -11,5 +11,8 @@ nnmodel/
     ├── models/
     │   ├── SegmentationModel.py        # Модель сегментатора
     │   └── ClassificationModel.py      # Модель классификатора
-    └── nnmodel.py                      # Модель КТ нейросети
+    ├── BaseNNModel.py                  # Базовый класс для моделей
+    ├── CTModel.py                      # Общая модель нейросети КТ
+    └── settings.py                     # Настройки загрузки моделей
+test.py                                 # Тесты модели и пример использования(comming soon)
 ```
