@@ -16,7 +16,7 @@ class SegmentationModel(BaseNNModel):
         self.model_path = settings[model_type]["all"]   # Путь к модели
         self.detected_roi = None                        # Метки bbox образований
         self.np_mask = None                             # Numpy маска сегментации
-        self.np_video = None                            # Numpy видео сегментации
+        self.np_video = None                            # Numpy изначальное видео
 
     def load(self):
         self._model = YOLO(self.model_path)   # Загрузка модели
