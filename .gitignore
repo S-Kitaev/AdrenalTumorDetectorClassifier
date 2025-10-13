@@ -1,0 +1,9 @@
+.venv
+.ipynb_checkpoints
+.csv
+.zip
+/data
+/model_files
+.pt
+.pth
+/test_data
