@@ -49,12 +49,13 @@ class SegmentationModel(BaseNNModel):
 
         cap.release()                                   # Закрываем обработку видео
 
-        #frames = frames[1::3]                          # При необходимости используем часть кадров
+        indices = np.linspace(0, len(frames) - 1, 54, dtype=int)
+        frames = np.array(frames)[indices]              # При необходимости используем часть кадров                     # При необходимости используем часть кадров
         if len(frames) == 0:
-            print("Error: no frames found")
+            print("Ошибка: не удалось найти видео")
             return
 
-        self.np_video = np.array(frames)
+        self.np_video = frames
         return np.array(frames)
 
     @staticmethod
@@ -111,24 +112,22 @@ class SegmentationModel(BaseNNModel):
         Returns:
             tuple: Кортеж из (Маска сегментации, список списков ROI в кадрах)
         """
-        if numpy_video is not None:
-            print(f'Found {self.np_video} frames in video')
-        else:
-            print("Video not found or preprocessed failed")
+        if numpy_video is None:
+            print("Ошибка: видео не было обработано")
             return
 
 
         if result_dir and (save_detection_video or save_segmentation_video):    # Создание объектов для записи видео
             if not video_name:                                                  # По умолчанию имя видео - время создания
-                time = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
                 video_name = time
 
             if save_detection_video:                                            # Создание объекта для сохранения видео детекции
-                detection_path = f"{result_dir}/{video_name}/detection.mp4"
+                detection_path = f"{result_dir}/{video_name}_detection.mp4"
                 writer_detector = self.make_writer(numpy_video, detection_path, fps)
 
             if save_segmentation_video:                                         # Создание объекта для сохранения видео маски сегментации
-                mask_path = f"{result_dir}/{video_name}/mask.mp4"
+                mask_path = f"{result_dir}/{video_name}_mask.mp4"
                 writer_mask = self.make_writer(numpy_video, mask_path, fps)
 
         rois_in_frames = []             # List[List[List[List[x1, y1], List[x2, y1], List[x1, y2], List[x2, y2]]]]
@@ -137,7 +136,6 @@ class SegmentationModel(BaseNNModel):
                                         # координаты: [левый верхний угол, правый верхний угол, левый нижний угол, правый нижний угол]
 
         segmentation_mask = []
-
         for i in range(numpy_video.shape[0]):  # Цикл по кадрам видео
             frame = numpy_video[i]
             frame_bgr = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -181,10 +179,10 @@ class SegmentationModel(BaseNNModel):
 
         if save_detection_video:
             writer_detector.release()
-            print(f"Detection video saved to {detection_path}")
+            print(f"[Segmentation] Видео с детекцией сохранено в {detection_path}")
 
         if save_segmentation_video:
             writer_mask.release()
-            print(f"Mask video saved to {mask_path}")
+            print(f"[Segmentation] Видео с сегментацией сохранено в {mask_path}")
 
-        return (segmentation_mask, rois_in_frames)
+        return (np.array(segmentation_mask), rois_in_frames)

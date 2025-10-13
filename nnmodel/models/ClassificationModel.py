@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from torchvision import transforms
 
+from .Simple3DCNN import Simple3DCNN
 from nnmodel.BaseNNModel import BaseNNModel
 from nnmodel.settings import settings
 
@@ -16,7 +17,9 @@ class ClassificationModel(BaseNNModel):
 
 
     def load(self):
-        self._model = torch.load(self.model_path)
+        self._model = Simple3DCNN()
+        state_dict = torch.load(self.model_path, map_location='cpu')
+        self._model.load_state_dict(state_dict)
         self._model.eval()
 
     def preprocessing(self,
@@ -54,14 +57,16 @@ class ClassificationModel(BaseNNModel):
             Tuple: кортеж (вероятность класса, метка класса, название класса)
         """
         with torch.no_grad():
-            np_videos_mult_mask = torch.tensor(np_videos_mult_mask, dtype=torch.float32).unsqueeze(0)
             transformed_videos_mult_mask = self.transforms(np_videos_mult_mask)
+
+            transformed_videos_mult_mask = transformed_videos_mult_mask.unsqueeze(0).unsqueeze(0)
 
             model_output = self._model(transformed_videos_mult_mask)
             predicted_proba = torch.softmax(model_output, dim=1)
             predicted_label = torch.argmax(predicted_proba, dim=1)
+            predicted_label_idx = int(predicted_label.item())
 
-        return (predicted_proba, predicted_label, self.labels[predicted_label])
+        return (predicted_proba, predicted_label_idx, self.labels[predicted_label_idx])
 
 
 
