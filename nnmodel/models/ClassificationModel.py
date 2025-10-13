@@ -13,7 +13,7 @@ class ClassificationModel(BaseNNModel):
         self.transforms = transforms.Compose([transforms.Lambda(lambda x: torch.tensor(x, dtype=torch.float32) / 255.0),
                                              transforms.Normalize(mean=[0.5], std=[0.5]),
         ])
-        self.labels = ["Benign", "Indererminate", "Malignant"]
+        self.labels = ["Malignant", "Indererminate", "Benign"]
 
 
     def load(self):
