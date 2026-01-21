@@ -1,5 +1,9 @@
 .ipynb_checkpoints/
 .venv/
+test_data/
+test_saving/
+nnmodel/
+model_files/
 .xlsx
 .csv
 .data/
