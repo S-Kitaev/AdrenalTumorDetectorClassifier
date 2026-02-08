@@ -1,8 +1,11 @@
 from nnmodel.CTModel import CTModel
+import time
+
+start_time = time.time()
 
 predict_test = CTModel()
 predict_test.load()
-predict_test.predict("./test_data/ID12_NATIVE_SE1.mp4")
+predict_test.predict("./test_data/S1.zip")
 
 
 # print(predict_test.model_segmentation)
@@ -14,4 +17,8 @@ print("[test] Размерность видео с примененной мас
 print("[test] Вероятности предсказаний", predict_test.proba)
 print("[test] Метка класса", predict_test.label)
 print("[test] Название класса", predict_test.label_name)
+
+end_time = time.time()
+execution_time = end_time - start_time
+print("Время обработки:", execution_time, "секунд")
 

@@ -1,6 +1,8 @@
 from ultralytics import YOLO
 from pathlib import Path
 from datetime import datetime
+import pydicom
+import zipfile
 import cv2
 import numpy as np
 
@@ -26,31 +28,67 @@ class SegmentationModel(BaseNNModel):
         Конвертирует видео файл в numpy массив кадров в градациях серого.
 
         Args:
-            path: путь к видео файлу
+            path: путь к видео файлу mp4 или zip если загружается набор dicom кадров
 
         Returns:
             numpy массив кадров в градациях серого
         """
-        cap = cv2.VideoCapture(path)                    # Загрузка видео
+        # набор кадров
+        frames = []
 
-        if not cap.isOpened():
-            print(f"Ошибка: не удалось открыть видео файл {path}")
-            return
+        if path.endswith(".mp4"):
+            cap = cv2.VideoCapture(path)                    # Загрузка видео
 
-        frames = []                                     # Массив кадров
-        while True:                                     # Цикл с предобработкой кадого кадра и сбором кадров видео в единый массив
-            ret, frame = cap.read()
-            if not ret:
-                break
+            if not cap.isOpened():
+                print(f"Ошибка: не удалось открыть видео файл {path}")
+                return
 
-            gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) # Конвертация кадра в градации серого и ресайзинг
-            gray_frame_resized = cv2.resize(gray_frame, (224, 224), interpolation=cv2.INTER_AREA)
-            frames.append(gray_frame_resized)
+            while True:                                     # Цикл с предобработкой кадого кадра и сбором кадров видео в единый массив
+                ret, frame = cap.read()
+                if not ret:
+                    break
 
-        cap.release()                                   # Закрываем обработку видео
+                gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) # Конвертация кадра в градации серого и ресайзинг
+                gray_frame_resized = cv2.resize(gray_frame, (224, 224), interpolation=cv2.INTER_AREA)
+                frames.append(gray_frame_resized)
+
+            cap.release()                                   # Закрываем обработку видео
+
+        elif path.endswith(".zip"):
+
+            file_names = []
+
+            with zipfile.ZipFile(path, 'r') as zip_file:
+
+                file_list = zip_file.namelist()
+
+                for file_name in file_list:
+                    if len(file_name.split("/")[-1]) > 0:
+                        file_names.append(file_name)
+
+            file_names.sort(key=lambda x: int(x.split("/")[-1][1:]))
+
+            with zipfile.ZipFile(path, 'r') as zip_file:
+                for file_name in file_names:
+                    with zip_file.open(file_name) as file:
+                        ds = pydicom.dcmread(file)
+                        frame = ds.pixel_array
+                        frame = cv2.resize(frame, (224, 224), interpolation=cv2.INTER_AREA)
+                        frame = np.where(frame < 0, 0, frame)
+                        frames.append(frame)
+
+            frames = np.array(frames)
+            img_float = frames.astype(np.float32)
+            img_min = np.min(img_float)
+            img_max = np.max(img_float)
+            img_normalized = 255 * (img_float - img_min) / (img_max - img_min)
+            frames = img_normalized.astype(np.uint8)
+
+        else:
+            raise ValueError("Неверный формат загружаемых данных, обработка папок с dicom файлами и .npy будет доступна позже")
 
         indices = np.linspace(0, len(frames) - 1, 54, dtype=int)
-        frames = np.array(frames)[indices]              # При необходимости используем часть кадров                     # При необходимости используем часть кадров
+        frames = np.array(frames)[indices]              # Используем часть кадров
         if len(frames) == 0:
             print("Ошибка: не удалось найти видео")
             return

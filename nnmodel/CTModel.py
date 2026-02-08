@@ -68,6 +68,8 @@ class CTModel(BaseNNModel):
 
         if self.model_segmentation is not None:
 
+
+
             self.np_video = self.model_segmentation.preprocessing(path_input)
 
             if self.np_video is not None:
