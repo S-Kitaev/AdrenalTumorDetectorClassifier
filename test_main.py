@@ -5,7 +5,7 @@ start_time = time.time()
 
 predict_test = CTModel()
 predict_test.load()
-predict_test.predict("./test_data/S1.zip")
+predict_test.predict("./PACS/�� PACS/ID1/P1/E1/S1")
 
 
 # print(predict_test.model_segmentation)
