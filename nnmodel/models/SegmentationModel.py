@@ -43,7 +43,7 @@ class SegmentationModel(BaseNNModel):
         indices = np.linspace(0, len(frames) - 1, 54, dtype=int)
         frames = frames[indices]              # Используем часть кадров
         if len(frames) == 0:
-            print("Ошибка: не удалось создать видео файл из кадров, мало кадров")
+            print("[Segmentation] Ошибка: не удалось создать видео файл из кадров, мало кадров")
             return
 
         self.np_video = frames
@@ -104,7 +104,7 @@ class SegmentationModel(BaseNNModel):
             tuple: Кортеж из (Маска сегментации, список списков ROI в кадрах)
         """
         if numpy_video is None:
-            print("Ошибка: видео не было обработано")
+            print("[Segmentation] Ошибка: видео не было обработано")
             return
 
 
@@ -195,7 +195,7 @@ class SegmentationModel(BaseNNModel):
         cap = cv2.VideoCapture(path)  # Загрузка видео
 
         if not cap.isOpened():
-            print(f"Ошибка: не удалось открыть видео файл {path}")
+            print(f"[Segmentation] Ошибка: не удалось открыть видео файл {path}")
             return
 
         while True:  # Цикл с предобработкой кадого кадра и сбором кадров видео в единый массив
@@ -258,7 +258,7 @@ class SegmentationModel(BaseNNModel):
                         frame = np.where(frame < 0, 0, frame)
                         frames.append(frame)
                     except InvalidDicomError as e:
-                        print(f"файл {file} не может быть прочитан: {e}")
+                        print(f"[Segmentation] Файл {file} не может быть прочитан: {e}")
 
         frames = np.array(frames)
         img_float = frames.astype(np.float32)
@@ -292,7 +292,7 @@ class SegmentationModel(BaseNNModel):
                 frame = np.where(frame < 0, 0, frame)
                 frames.append(frame)
             except InvalidDicomError as e:
-                print(f"файл {file} не может быть прочитан: {e}")
+                print(f"[Segmentation] Файл {file} не может быть прочитан: {e}")
 
         frames = np.array(frames)
         img_float = frames.astype(np.float32)
