@@ -1,5 +1,4 @@
-from .BaseNNModel import BaseNNModel
-
+from .models.BaseNNModel import BaseNNModel
 from .models.ClassificationModel import ClassificationModel
 from .models.SegmentationModel import SegmentationModel
 

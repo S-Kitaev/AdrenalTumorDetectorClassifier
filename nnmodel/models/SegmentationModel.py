@@ -8,7 +8,7 @@ import zipfile
 import cv2
 import numpy as np
 
-from nnmodel.BaseNNModel import BaseNNModel
+from nnmodel.models.BaseNNModel import BaseNNModel
 from nnmodel.settings import settings
 
 
@@ -40,7 +40,7 @@ class SegmentationModel(BaseNNModel):
 
         frames = self._video_loader(path)
 
-        indices = np.linspace(0, len(frames) - 1, 54, dtype=int)
+        indices = np.linspace(0, len(frames) - 1, 53, dtype=int)
         frames = frames[indices]              # Используем часть кадров
         if len(frames) == 0:
             print("[Segmentation] Ошибка: не удалось создать видео файл из кадров, мало кадров")

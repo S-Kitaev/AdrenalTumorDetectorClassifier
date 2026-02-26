@@ -1,16 +1,24 @@
+# env libs
 .venv
 .ipynb_checkpoints
 
+# testing folders
 /data
-/model_files
 /test_data
 /test_saving
 /PACS
 
+# data sourses
 direct_links.csv
 dataframe.csv
 data.zip
 
-.pt
+# models
+model_files/model_1_best.pth
+model_files/model_2_best.pth
+model_files/model_3_best.pth
+best.pt
+
+# additional
 .pth
 .xlsx
