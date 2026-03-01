@@ -4,7 +4,6 @@
 
 # testing folders
 /data
-/test_data
 /test_saving
 /PACS
 
@@ -14,11 +13,13 @@ dataframe.csv
 data.zip
 
 # models
-model_files/model_1_best.pth
-model_files/model_2_best.pth
-model_files/model_3_best.pth
-best.pt
+*.pt
+*.pth
 
 # additional
-.pth
-.xlsx
+*.zip
+*.xlsx
+
+# data
+*.npy
+*.mp4

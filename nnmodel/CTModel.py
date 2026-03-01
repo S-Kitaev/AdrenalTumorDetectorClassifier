@@ -1,18 +1,30 @@
 from .models.BaseNNModel import BaseNNModel
 from .models.ClassificationModel import ClassificationModel
 from .models.SegmentationModel import SegmentationModel
+from .utils.separate import separate_lesions
+from .utils.save import save_videos
 
 class CTModel(BaseNNModel):
+    """
+    Метамодель для анализа КТ-снимков брюшной полости.
+    Оркестрирует последовательность:
+        1. Загрузка и предобработка видео (SegmentationModel.preprocessing)
+        2. Покадровая детекция и сегментация образований (SegmentationModel.predict)
+        3. Разделение нескольких образований на отдельные маски (separate_lesions)
+        4. Классификация каждого образования независимо (ClassificationModel)
+    Результаты классификации доступны через атрибут results.
+    """
+
     def __init__(self):
-        self.model_segmentation = None
-        self.model_classification = None
-        self.detected_roi = None
-        self.np_mask = None
+        self.model_segmentation: SegmentationModel | None = None
+        self.model_classification: ClassificationModel | None = None
+
         self.np_video = None
-        self.video_with_mask = None
-        self.proba = None
-        self.label = None
-        self.label_name = None
+        self.np_mask = None
+        self.detected_roi = None
+
+        self.lesion_masks: list = []            # Разделённые маски: по одной на каждое образование
+        self.results: list[tuple] = []          # Результаты классификации: список (proba, label_idx, label_name)
 
     def load(self) -> None:
         self.model_classification = ClassificationModel(model_type = "classification")
@@ -28,28 +40,33 @@ class CTModel(BaseNNModel):
         """
         pass
 
-    def predict(self,
-                path_input: str,
-                conf_threshold: float = 0.5,
-                mask_threshold: float = 0.5,
-                fps: int = 10,
-                detection_color: tuple = (0, 255, 0),
-                mask_color: tuple = (255, 255, 255),
-                save_detection_video: bool = False,
-                save_segmentation_video: bool = False,
-                result_dir: str = None,
-                video_name: str = None,
-                roi_width: int = 2) -> None:
+    def predict(
+            self,
+            path_input: str,
+            conf_threshold: float = 0.5,
+            mask_threshold: float = 0.5,
+            fps: int = 10,
+            detection_color: tuple = (0, 255, 0),
+            mask_color: tuple = (255, 255, 255),
+            save_detection_video: bool = False,
+            save_segmentation_video: bool = False,
+            result_dir: str = None,
+            video_name: str = None,
+            roi_width: int = 2
+        ) -> None:
 
         """
-        Предсказание координат области с образовнаием, формирование видео и маски в формате np.ndarray,
-        сохранение видео с областями детекции и сегментацией в директорию result_dir, а также предсказание класса
-        образования (0 - Злокачетвенное, 1 - Неопределенное, 2 - Доброкачетвенное) и названия образования по даннному
-        списку
+        Полный цикл анализа КТ-снимка:
+        загрузка → сегментация → разделение образований → классификация каждого.
+
+        Все результаты сохраняются в атрибутах экземпляра.
+        Если образований несколько, атрибут results содержит список результатов.
+        Атрибуты proba / label / label_name указывают на первое образование
+        (для обратной совместимости со сценарием с одним образованием).
 
         Args:
-            numpy_video (np.ndarray): Видео в формате np.ndarray
-            conf_threshold (float): Порог уверенности для детекции
+            path_input (str): Путь к входному файлу или папке.
+            conf_threshold (float): Порог уверенности для детектора YOLO
             mask_threshold (float): Порог преобразования маски в бинарное изображение (1 - белый, 0 - черный)
             fps (int): Частота кадров в сохраняемом видео
             detection_color (tuple): Цвет bounding box для детекции (зеленый)
@@ -65,45 +82,68 @@ class CTModel(BaseNNModel):
             Все результаты сохраняются в локальные атрибуты класса
         """
 
-        if self.model_segmentation is not None:
+        # Шаг 1: загрузка и предобработка видео
+        if self.model_segmentation is None:
+            return
 
+        self.np_video = self.model_segmentation.preprocessing(path_input)
+        if self.np_video is None:
+            return
 
+        print("[CTModel] Видео успешно загружено")
 
-            self.np_video = self.model_segmentation.preprocessing(path_input)
+        # Шаг 2: детекция и сегментация
+        self.np_mask, self.detected_roi = self.model_segmentation.predict(
+            self.np_video,
+            conf_threshold= 0.16,               # Лучшее значение согласно исследованию, информация из отчета от Китаев С.М. 19.11.25
+            mask_threshold=mask_threshold,
+        )
 
-            if self.np_video is not None:
-                print("[CTModel] Видео успешно загружено")
+        if self.np_mask is None or self.detected_roi is None:
+            return
 
-            self.np_mask, self.detected_roi = self.model_segmentation.predict(self.np_video,
-                                                                              conf_threshold = conf_threshold,
-                                                                              mask_threshold = mask_threshold,
-                                                                              fps = fps,
-                                                                              detection_color = detection_color,
-                                                                              mask_color = mask_color,
-                                                                              save_detection_video = save_detection_video,
-                                                                              save_segmentation_video = save_segmentation_video,
-                                                                              result_dir = result_dir,
-                                                                              video_name = video_name,
-                                                                              roi_width = roi_width
-                                                                              )
-            if self.np_mask is not None and self.detected_roi is not None:
-                print("[CTModel] Область с образованием успешно выделена")
+        print("[CTModel] Область с образованием успешно выделена")
 
-            if result_dir is not None and save_detection_video == True:
-                print("[CTModel] Видео с областью детекции успешно сохранено в папку", result_dir)
+        # Шаг 3: разделение образований
+        self.lesion_masks = separate_lesions(self.np_mask, self.detected_roi)
+        n_lesions = len(self.lesion_masks)
+        print(f"[CTModel] Обнаружено образований: {n_lesions}")
 
-            if result_dir is not None and save_segmentation_video == True:
-                print("[CTModel] Видео с областью сегментации успешно сохранено в папку", result_dir)
+        # Шаг 4: сохранение видео
+        if result_dir is not None and (save_detection_video or save_segmentation_video):
+            save_videos(
+                numpy_video=self.np_video,
+                segmentation_mask=self.np_mask,
+                rois_in_frames=self.detected_roi,
+                lesion_masks=self.lesion_masks,
+                result_dir=result_dir,
+                video_name=video_name,
+                fps=fps,
+                detection_color=detection_color,
+                mask_color=mask_color,
+                roi_width=roi_width,
+            )
+            if save_detection_video:
+                print(f"[CTModel] Видео детекции сохранено в папку {result_dir}")
+            if save_segmentation_video:
+                print(f"[CTModel] Видео сегментации сохранено в папку {result_dir}")
 
-        if self.model_classification is not None and self.np_mask is not None and self.np_video is not None:
+        # Шаг 5: классификация каждого образования
+        if self.model_classification is None:
+            return
 
-            self.video_with_mask = self.model_classification.preprocessing(self.np_video, self.np_mask)
+        self.results = []
+        for i, lesion_mask in enumerate(self.lesion_masks, start=1):
+            video_with_mask = self.model_classification.preprocessing(
+                self.np_video, lesion_mask
+            )
+            if video_with_mask is None:
+                print(f"[CTModel] Образование {i}: ошибка предобработки, пропущено")
+                continue
 
-            if self.video_with_mask is not None:
-                print("[CTModel] Образование успешно выделено маской на видео")
+            proba, label_idx, label_name = self.model_classification.predict(video_with_mask)
+            self.results.append((proba, label_idx, label_name))
+            print(f"[CTModel] Образование {i}: Индекс - {label_idx}; Фенотип - {label_name}; Вероятность - {proba}")
 
-            self.proba, self.label, self.label_name = self.model_classification.predict(self.video_with_mask)
-
-            if self.proba is not None and self.label is not None and self.label_name is not None:
-                print("[CTModel] Модель успешно предсказала класс образования")
-                print("[CTModel] Предсказание класса образования:", self.label_name)
+        if not self.results:
+            return
