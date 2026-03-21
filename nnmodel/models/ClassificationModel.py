@@ -8,6 +8,11 @@ from nnmodel.models.BaseNNModel import BaseNNModel
 from nnmodel.settings import settings
 
 class ClassificationModel(BaseNNModel):
+    """
+    Модель классификации образований надпочечников на три класса:
+    Benign (доброкачественные), Indeterminate (неопределенные), Malignant (злокачественные).
+    Использует ансамбль из 3-х моделей Simple3DCNN.
+    """
     def __init__(self, model_type="classification"):
         super().__init__()
         self.model_path = settings[model_type]
@@ -24,6 +29,9 @@ class ClassificationModel(BaseNNModel):
         self.num_models = 3  # Количество моделей в ансамбле
 
     def _preprocess_volume(self, volume):
+        """
+        Предобработка 3D объема для подачи в модель.
+        """
         volume = np.array(volume, dtype=np.float32)
 
         # Нормализация к [0, 1] если данные в диапазоне [0, 255]
@@ -36,7 +44,10 @@ class ClassificationModel(BaseNNModel):
         return volume
 
     def load(self):
-
+        """
+        Загрузка ансамбля моделей Simple3DCNN.
+        Загружает веса 3-х предобученных моделей.
+        """
         for i in range(self.num_models):
 
             model_path = self.model_path[str(i+1)]
@@ -60,6 +71,16 @@ class ClassificationModel(BaseNNModel):
                 print(f"[ClassificationModel] Ошибка загрузки модели {model_path}: {e}")
 
     def preprocessing(self, np_video: np.ndarray = None, np_mask: np.ndarray = None) -> object:
+        """
+        Предобработка видео и маски для классификации.
+
+        Args:
+            np_video (np.ndarray): Входное видео (N, H, W)
+            np_mask (np.ndarray): Бинарная маска сегментации (N, H, W)
+
+        Returns:
+            np.ndarray: Предобработанный 3D объем (53, 100, 100)
+        """
 
         # Проверка наличия и размерности маски и видео
         assert np_mask is not None, "Маска не задана"
@@ -89,12 +110,32 @@ class ClassificationModel(BaseNNModel):
         return videos_mult_mask
 
     def _soft_voting(self, probabilities):
+        """
+        Применяет мягкое голосование для объединения предсказаний ансамбля моделей.
+
+        Args:
+            probabilities (list): Список вероятностей от каждой модели
+
+        Returns:
+            np.ndarray: Усредненные вероятности по всем моделям
+        """
         probabilities = np.array(probabilities, dtype=np.float32)
         avg_probs = np.mean(probabilities, axis=0)
         return avg_probs
 
     def predict(self, np_videos_mult_mask: np.ndarray = None):
+        """
+        Выполняет классификацию 3D объема с использованием ансамбля моделей.
 
+        Args:
+            np_videos_mult_mask (np.ndarray): Предобработанный 3D объем (53, 100, 100)
+
+        Returns:
+            tuple:
+                - torch.Tensor: Вероятности для каждого класса
+                - int: Индекс предсказанного класса (0: Benign, 1: Indeterminate, 2: Malignant)
+                - str: Название предсказанного класса
+        """
         with torch.no_grad():
             # Преобразование данных
             transformed = self.transforms(np_videos_mult_mask)
