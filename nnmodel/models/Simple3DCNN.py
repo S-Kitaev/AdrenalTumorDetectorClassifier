@@ -18,9 +18,10 @@ class Simple3DCNN(nn.Module):
             nn.MaxPool3d(kernel_size=2),
         )
 
-        # Автоматический расчет размера входа для линейного слоя
+        # Автоматический расчет размера входа для линейного слоя (54 кадра, 100x100)
         with torch.no_grad():
-            sample = torch.randn(1, 1, 54, 224, 224)
+            # sample = torch.randn(1, 1, 54, 224, 224)
+            sample = torch.randn(1, 1, 53, 100, 100)
             features = self.features(sample)
             linear_input_size = features.view(features.size(0), -1).size(1)
 

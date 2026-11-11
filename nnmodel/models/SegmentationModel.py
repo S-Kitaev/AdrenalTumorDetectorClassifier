@@ -7,6 +7,7 @@ from pydicom.errors import InvalidDicomError
 import zipfile
 import cv2
 import numpy as np
+import torch
 
 from nnmodel.BaseNNModel import BaseNNModel
 from nnmodel.settings import settings
@@ -15,36 +16,38 @@ from nnmodel.settings import settings
 
 class SegmentationModel(BaseNNModel):
     """
-    Модель детекции и сегментации образований надпочечников на КТ изображениях брюшной полости
+    Detection and segmentation of adrenal lesions on abdominal CT volumes.
     """
     def __init__(self, model_type = "segmentation"):
         super().__init__()
-        self.model_path = settings[model_type]["all"]   # Путь к модели
-        self.detected_roi = None                        # Метки bbox образований
-        self.np_mask = None                             # Numpy маска сегментации
-        self.np_video = None                            # Numpy изначальное видео
+        self.model_path = settings[model_type]["all"]
+        self.detected_roi = None
+        self.np_mask = None
+        self.np_video = None
+        self.use_amp = torch.cuda.is_available()
 
     def load(self):
-        self._model = YOLO(self.model_path)   # Загрузка модели
+        if not os.path.exists(self.model_path):
+            raise FileNotFoundError(
+                f"[Segmentation] Weights not found: {self.model_path}"
+            )
+        self._model = YOLO(self.model_path)
 
     def preprocessing(self, path: str) -> object:
         """
-        Конвертирует видео файл в numpy массив кадров в градациях серого.
-
-        Args:
-            path: путь к видео файлу mp4 или zip если загружается набор dicom кадров
-
-        Returns:
-            numpy массив кадров в градациях серого
+        Convert video / DICOM / npy input to a grayscale numpy volume
+        subsampled to 54 frames at 224x224.
         """
-
         frames = self._video_loader(path)
+        if frames is None or len(frames) == 0:
+            print("[Segmentation] Error: failed to load frames from input")
+            return None
 
         indices = np.linspace(0, len(frames) - 1, 54, dtype=int)
-        frames = frames[indices]              # Используем часть кадров
+        frames = frames[indices]
         if len(frames) == 0:
-            print("[Segmentation] Ошибка: не удалось создать видео файл из кадров, мало кадров")
-            return
+            print("[Segmentation] Error: not enough frames after subsampling")
+            return None
 
         self.np_video = frames
         return frames
@@ -103,78 +106,96 @@ class SegmentationModel(BaseNNModel):
         Returns:
             tuple: Кортеж из (Маска сегментации, список списков ROI в кадрах)
         """
-        if numpy_video is None:
-            print("[Segmentation] Ошибка: видео не было обработано")
-            return
+        if numpy_video is None or getattr(numpy_video, "size", 0) == 0:
+            print("[Segmentation] Error: video was not preprocessed")
+            return None, None
 
+        if self._model is None:
+            raise RuntimeError("[Segmentation] Model is not loaded")
 
-        if result_dir and (save_detection_video or save_segmentation_video):    # Создание объектов для записи видео
-            if not video_name:                                                  # По умолчанию имя видео - время создания
-                time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                video_name = time
+        writer_detector = None
+        writer_mask = None
+        detection_path = None
+        mask_path = None
 
-            if save_detection_video:                                            # Создание объекта для сохранения видео детекции
+        if result_dir and (save_detection_video or save_segmentation_video):
+            if not video_name:
+                video_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+            if save_detection_video:
                 detection_path = f"{result_dir}/{video_name}_detection.mp4"
                 writer_detector = self.make_writer(numpy_video, detection_path, fps)
 
-            if save_segmentation_video:                                         # Создание объекта для сохранения видео маски сегментации
+            if save_segmentation_video:
                 mask_path = f"{result_dir}/{video_name}_mask.mp4"
                 writer_mask = self.make_writer(numpy_video, mask_path, fps)
 
-        rois_in_frames = []             # List[List[List[List[x1, y1], List[x2, y1], List[x1, y2], List[x2, y2]]]]
-                                        # Для каждого кадра берем список всех его ROI
-                                        # Для каждого ROI берем списки X и Y координат
-                                        # координаты: [левый верхний угол, правый верхний угол, левый нижний угол, правый нижний угол]
+        # Batch inference: list of BGR frames for YOLO
+        frames_bgr = [
+            cv2.cvtColor(numpy_video[i], cv2.COLOR_GRAY2BGR)
+            for i in range(numpy_video.shape[0])
+        ]
 
+        predict_kwargs = dict(
+            conf=conf_threshold,
+            task="segment",
+            verbose=False,
+            stream=False,
+        )
+        if self.use_amp:
+            predict_kwargs["half"] = True
+
+        predictions = self._model.predict(frames_bgr, **predict_kwargs)
+
+        rois_in_frames = []
         segmentation_mask = []
-        for i in range(numpy_video.shape[0]):  # Цикл по кадрам видео
-            frame = numpy_video[i]
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+        h, w = numpy_video.shape[1], numpy_video.shape[2]
 
-            prediction = self._model.predict(frame_bgr, conf=conf_threshold, task="segment", verbose=False)[0]
-
-            # Детекция
-            det_frame = frame_bgr.copy()
+        for i, prediction in enumerate(predictions):
+            det_frame = frames_bgr[i].copy()
             frame_rois = []
-            for box in prediction.boxes.data.cpu().numpy():
-                x1, y1, x2, y2, conf, cls = box
-                if conf < conf_threshold:
-                    continue
 
-                frame_roi = [[x1, y1], [x2, y1], [x1, y2], [x2, y2]]
-                pt1 = (int(x1), int(y1))
-                pt2 = (int(x2), int(y2))
-                cv2.rectangle(det_frame, pt1, pt2, detection_color, roi_width)
-
-                frame_rois.append(frame_roi)
+            if prediction.boxes is not None and len(prediction.boxes):
+                for box in prediction.boxes.data.cpu().numpy():
+                    x1, y1, x2, y2, conf, cls = box
+                    if conf < conf_threshold:
+                        continue
+                    frame_rois.append([[x1, y1], [x2, y1], [x1, y2], [x2, y2]])
+                    cv2.rectangle(
+                        det_frame,
+                        (int(x1), int(y1)),
+                        (int(x2), int(y2)),
+                        detection_color,
+                        roi_width,
+                    )
 
             rois_in_frames.append(frame_rois)
 
-            if save_detection_video:
+            if writer_detector is not None:
                 writer_detector.write(det_frame)
 
-            # Сегментация
-            mask_output = np.zeros((numpy_video.shape[1], numpy_video.shape[2]), dtype=np.uint8)
-
+            mask_output = np.zeros((h, w), dtype=np.uint8)
             if prediction.masks is not None and prediction.masks.data.numel() > 0:
                 masks = prediction.masks.data.cpu().numpy()
                 for mask in masks:
-                    binary = (mask > mask_threshold).astype(np.uint8) * mask_color[0]  # маска белая
+                    binary = (mask > mask_threshold).astype(np.uint8)
+                    if binary.shape != (h, w):
+                        binary = cv2.resize(binary, (w, h), interpolation=cv2.INTER_NEAREST)
+                    binary = binary * mask_color[0]
                     mask_output = np.maximum(mask_output, binary)
 
             segmentation_mask.append(mask_output)
 
-            if save_segmentation_video:
-                mask_bgr = cv2.cvtColor(mask_output, cv2.COLOR_GRAY2BGR)
-                writer_mask.write(mask_bgr)
+            if writer_mask is not None:
+                writer_mask.write(cv2.cvtColor(mask_output, cv2.COLOR_GRAY2BGR))
 
-        if save_detection_video:
+        if writer_detector is not None:
             writer_detector.release()
-            print(f"[Segmentation] Видео с детекцией сохранено в {detection_path}")
+            print(f"[Segmentation] Detection video saved to {detection_path}")
 
-        if save_segmentation_video:
+        if writer_mask is not None:
             writer_mask.release()
-            print(f"[Segmentation] Видео с сегментацией сохранено в {mask_path}")
+            print(f"[Segmentation] Segmentation video saved to {mask_path}")
 
         return (np.array(segmentation_mask), rois_in_frames)
 

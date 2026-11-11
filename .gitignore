@@ -11,6 +11,14 @@ direct_links.csv
 dataframe.csv
 data.zip
 
-.pt
-.pth
-.xlsx
+*.pt
+*.pth
+*.xlsx
+eval_random10_results.json
+MedicalNet/
+
+htmlcov/
+.coverage
+.pytest_cache/
+__pycache__/
+*.pyc

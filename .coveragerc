@@ -1,0 +1,9 @@
+[run]
+omit =
+    */ClassificationModel_bagging.py
+    */analyze_ensemble_probs.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:

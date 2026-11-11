@@ -1,60 +1,96 @@
 # AdrenalTumorDetectorClassifier
-НИР "Диагностика заболеваний (образований) надпочечников с помощью ИИ"
+НИР «Диагностика заболеваний (образований) надпочечников с помощью ИИ»
 
-### branch - ```backend```
+Ветка `backend` — пакет подготовки моделей для встраивания в backend.
 
-Векта подготовки моделей для встраивания в backend
+## Структура
 
-Cтруктура:
-```commandline
-nnmodel/
-    ├── models/
-    │   ├── SegmentationModel.py        # Модель сегментатора
-    │   └── ClassificationModel.py      # Модель классификатора
-    ├── BaseNNModel.py                  # Базовый класс для моделей
-    ├── CTModel.py                      # Общая модель нейросети КТ
-    └── settings.py                     # Настройки загрузки моделей
-test_main.py                            # Тест основных функций и атрибутов КТ модели
-test_save.py                            # Тест функции сохранения видео детекции и сегментации
+```
+project/
+├── nnmodel/
+│   ├── __init__.py
+│   ├── settings.py              # CLASS_NAMES, пути к весам
+│   ├── BaseNNModel.py
+│   ├── CTModel.py               # оркестратор пайплайна
+│   └── models/
+│       ├── __init__.py
+│       ├── SegmentationModel.py # YOLO detect/segment
+│       ├── ClassificationModel.py  # фенотип (bagging) + диагноз (MedicalNet ResNet-18)
+│       ├── MedicalNetResNet.py     # 3D ResNet-18 под веса Tencent MedicalNet
+│       ├── Simple3DCNN.py
+│       └── ClassificationModel_bagging.py  # deprecated shim
+├── model_files/                 # веса (не в git)
+├── tests/
+│   ├── conftest.py
+│   ├── test_main.py
+│   ├── test_save.py
+│   ├── test_separate.py
+│   ├── test_classification.py
+│   └── test_segmentation.py
+├── scripts/
+│   └── create_diagnosis_stubs.py
+├── requirements.txt
+├── README.md
+└── .gitignore
 ```
 
-Для теста:
-```
-1) Создать папку с файлами для теста в корне проекта
-    2.1) ИЛИ Загрузить в папку видео КТ снимка в видео форматах (MP4, AVI, MKV, MOV, MPEG, WMV)
-    2.2) ИЛИ Загрузить в папку видео КТ снимка в видео формате массива numpy (NPY)
-    2.3) ИЛИ Загрузить в папку архив (ZIP) с кадрами формата dicom ([без разширения], DICOM, DCM)
-    2.4) ИЛИ Передать путь до папки с кадрами формата dicom ([без разширения], DICOM, DCM)
-3) В тесте прописать путь до файла для проведения анализа 
-```
-Лог от неверно загруженного файла или папки/архива с файлами неверного формата выведется в консоль
+## Пайплайн
 
-В результате выполнения теста основных функций ```test_main.py``` модели будет получен лог:
+1. **Сегментация/детекция** (YOLO) → маска и ROI  
+2. **Фенотип** (ансамбль Simple3DCNN, soft voting) → `Benign` / `Indeterminate` / `Malignant`  
+3. **Диагноз** (3D ResNet-18 + pretrained **Tencent MedicalNet**):  
+   - Malignant → Adrenocortical Carcinoma / Pheochromocytoma  
+   - Benign → каскад Solid vs Cystic/Lipomatous → Adenoma/Hyperplasia или Cyst/Myelolipoma  
+   - Indeterminate → диагноз не определяется  
 
-```commandline
-[CTModel] Видео успешно загружено
-[CTModel] Область с образованием успешно выделена
-[CTModel] Образование успешно выделено маской на видео
-[CTModel] Модель успешно предсказала класс образования
-[CTModel] Предсказание класса образования: Benign
-[test] ROI детекции [[], [], [], [], [], [[[np.float32(135.47324), np.float32(128.90497)], [np.float32(151.43997), np.float32(128.90497)], [np.float32(135.47324), np.float32(147.0043)], [np.float32(151.43997), np.float32(147.0043)]]], [[[np.float32(134.69759), np.float32(126.218925)], [np.float32(153.40254), np.float32(126.218925)], [np.float32(134.69759), np.float32(149.53766)], [np.float32(153.40254), np.float32(149.53766)]]], [[[np.float32(132.0394), np.float32(124.36374)], [np.float32(154.48526), np.float32(124.36374)], [np.float32(132.0394), np.float32(151.12927)], [np.float32(154.48526), np.float32(151.12927)]]], [[[np.float32(129.58356), np.float32(121.72347)], [np.float32(154.96838), np.float32(121.72347)], [np.float32(129.58356), np.float32(152.92581)], [np.float32(154.96838), np.float32(152.92581)]]], [[[np.float32(128.28369), np.float32(120.64145)], [np.float32(155.35663), np.float32(120.64145)], [np.float32(128.28369), np.float32(153.48221)], [np.float32(155.35663), np.float32(153.48221)]]], [[[np.float32(126.36391), np.float32(119.824875)], [np.float32(155.7506), np.float32(119.824875)], [np.float32(126.36391), np.float32(154.37822)], [np.float32(155.7506), np.float32(154.37822)]]], [[[np.float32(125.86756), np.float32(118.658875)], [np.float32(155.9939), np.float32(118.658875)], [np.float32(125.86756), np.float32(154.97733)], [np.float32(155.9939), np.float32(154.97733)]]], [[[np.float32(125.75995), np.float32(119.016785)], [np.float32(156.34167), np.float32(119.016785)], [np.float32(125.75995), np.float32(155.29663)], [np.float32(156.34167), np.float32(155.29663)]]], [[[np.float32(126.42592), np.float32(118.38986)], [np.float32(156.39153), np.float32(118.38986)], [np.float32(126.42592), np.float32(155.60483)], [np.float32(156.39153), np.float32(155.60483)]]], [[[np.float32(127.02956), np.float32(117.7369)], [np.float32(156.63301), np.float32(117.7369)], [np.float32(127.02956), np.float32(155.68881)], [np.float32(156.63301), np.float32(155.68881)]]], [[[np.float32(127.13337), np.float32(117.581894)], [np.float32(157.419), np.float32(117.581894)], [np.float32(127.13337), np.float32(155.39339)], [np.float32(157.419), np.float32(155.39339)]]], [[[np.float32(127.455055), np.float32(116.65117)], [np.float32(158.12228), np.float32(116.65117)], [np.float32(127.455055), np.float32(155.17473)], [np.float32(158.12228), np.float32(155.17473)]]], [[[np.float32(127.57434), np.float32(116.21042)], [np.float32(158.6394), np.float32(116.21042)], [np.float32(127.57434), np.float32(155.24075)], [np.float32(158.6394), np.float32(155.24075)]]], [[[np.float32(127.99516), np.float32(116.09575)], [np.float32(159.21529), np.float32(116.09575)], [np.float32(127.99516), np.float32(154.97356)], [np.float32(159.21529), np.float32(154.97356)]]], [[[np.float32(128.48123), np.float32(115.61472)], [np.float32(158.63388), np.float32(115.61472)], [np.float32(128.48123), np.float32(154.83505)], [np.float32(158.63388), np.float32(154.83505)]]], [[[np.float32(129.0016), np.float32(116.53758)], [np.float32(158.4334), np.float32(116.53758)], [np.float32(129.0016), np.float32(154.83446)], [np.float32(158.4334), np.float32(154.83446)]]], [[[np.float32(129.35805), np.float32(117.42348)], [np.float32(157.46608), np.float32(117.42348)], [np.float32(129.35805), np.float32(153.82149)], [np.float32(157.46608), np.float32(153.82149)]]], [[[np.float32(129.96198), np.float32(118.267365)], [np.float32(156.6333), np.float32(118.267365)], [np.float32(129.96198), np.float32(151.99548)], [np.float32(156.6333), np.float32(151.99548)]]], [[[np.float32(129.97026), np.float32(118.70972)], [np.float32(155.70338), np.float32(118.70972)], [np.float32(129.97026), np.float32(148.81558)], [np.float32(155.70338), np.float32(148.81558)]]], [[[np.float32(130.0591), np.float32(118.72071)], [np.float32(154.41063), np.float32(118.72071)], [np.float32(130.0591), np.float32(143.98114)], [np.float32(154.41063), np.float32(143.98114)]]], [[[np.float32(130.70157), np.float32(119.84314)], [np.float32(152.74948), np.float32(119.84314)], [np.float32(130.70157), np.float32(140.87549)], [np.float32(152.74948), np.float32(140.87549)]]], [[[np.float32(131.89651), np.float32(120.57211)], [np.float32(151.09088), np.float32(120.57211)], [np.float32(131.89651), np.float32(137.70331)], [np.float32(151.09088), np.float32(137.70331)]]], [[[np.float32(134.1574), np.float32(121.99921)], [np.float32(147.58699), np.float32(121.99921)], [np.float32(134.1574), np.float32(136.10202)], [np.float32(147.58699), np.float32(136.10202)]]], [[[np.float32(135.229), np.float32(124.03132)], [np.float32(144.60779), np.float32(124.03132)], [np.float32(135.229), np.float32(133.51685)], [np.float32(144.60779), np.float32(133.51685)]]], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [], [[[np.float32(84.264694), np.float32(132.22263)], [np.float32(102.47688), np.float32(132.22263)], [np.float32(84.264694), np.float32(145.93442)], [np.float32(102.47688), np.float32(145.93442)]]], [[[np.float32(85.06612), np.float32(131.92929)], [np.float32(102.70247), np.float32(131.92929)], [np.float32(85.06612), np.float32(145.62878)], [np.float32(102.70247), np.float32(145.62878)]]], [], [], [], [], []]
-[test] Размерность маски (54, 224, 224)
-[test] Размерность видео (54, 224, 224)
-[test] Размерность видео с примененной маской (54, 224, 224)
-[test] Вероятности предсказаний tensor([[9.8533e-01, 1.2506e-05, 1.4655e-02]])
-[test] Метка класса 0
-[test] Название класса Benign
+Порядок классов фенотипа единый: `CLASS_NAMES = ['Benign', 'Indeterminate', 'Malignant']`.
+
+## Установка
+
+```bash
+pip install -r requirements.txt
 ```
 
-В результате выполнения теста сохранения видео детекции и сегментации  ```test_save.py``` модели будет получен лог:
-```commandline
-[CTModel] Видео успешно загружено
-[Segmentation] Видео с детекцией сохранено в ./test_saving/2025-10-13_21-55-26_detection.mp4
-[Segmentation] Видео с сегментацией сохранено в ./test_saving/2025-10-13_21-55-26_mask.mp4
-[CTModel] Область с образованием успешно выделена
-[CTModel] Видео с областью детекции успешно сохранено в папку ./test_saving
-[CTModel] Видео с областью сегментации успешно сохранено в папку ./test_saving
-[CTModel] Образование успешно выделено маской на видео
-[CTModel] Модель успешно предсказала класс образования
-[CTModel] Предсказание класса образования: Benign
+Веса положите в `model_files/`:
+
+| Файл | Назначение |
+|------|------------|
+| `best.pt` | YOLO сегментация |
+| `model_1/2/3_best.pth` | ансамбль фенотипа |
+| `resnet_18_23dataset.pth` | Tencent MedicalNet (в `MedicalNet/`) |
+| `malignant_best.pth` | диагноз злокачественных |
+| `benign_level1.pth` | доброкач. уровень 1 |
+| `benign_level2_solid.pth` | аденома vs гиперплазия |
+| `benign_level2_cystic.pth` | киста vs миелолипома |
+
+MedicalNet: [Tencent/MedicalNet](https://github.com/Tencent/MedicalNet) — файл `resnet_18_23dataset.pth` (shortcut A).
+
+Stub-чекпоинты диагноза (опционально с MedicalNet-инициализацией):
+
+```bash
+python scripts/create_diagnosis_stubs.py --with-medicalnet
 ```
+
+## Быстрый запуск
+
+```python
+from nnmodel import CTModel
+
+model = CTModel()
+model.load()  # модели грузятся один раз
+model.predict("./test_data/sample.mp4", result_dir="./test_saving",
+              save_detection_video=True, save_segmentation_video=True)
+
+print(model.label_name, model.diagnosis_name)
+print(model.timings)
+```
+
+Вход: MP4/AVI/…, `.npy`, ZIP с DICOM или папка DICOM.
+
+## Тесты
+
+```bash
+pytest tests/ -v --cov=nnmodel --cov-report=html
+```
+
+Покрытие: откройте `htmlcov/index.html`.
